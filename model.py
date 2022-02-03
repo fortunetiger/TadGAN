@@ -31,7 +31,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.signal_shape = signal_shape
         self.lstm = nn.LSTM(input_size=20, hidden_size=64, num_layers=2, bidirectional=True)
-        self.dense = nn.Linear(in_features=128, out_features=self.signal_shape)
+        self.dense = nn.Linear(in_features=128, out_features=signal_shape)
         self.decoder_path = decoder_path
 
     def forward(self, x):

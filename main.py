@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-import os
-import logging
+import os, logging, argparse
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,6 +20,7 @@ logging.basicConfig(filename='train.log', level=logging.DEBUG)
 class SignalDataset(Dataset):
     def __init__(self, path):
         self.signal_df = pd.read_csv(path)
+        print(self.signal_df)
         self.signal_columns = self.make_signal_list()
         self.make_rolling_signals()
 
@@ -48,7 +48,7 @@ class SignalDataset(Dataset):
 def critic_x_iteration(sample):
     optim_cx.zero_grad()
 
-    x = sample['signal'].view(1, batch_size, signal_shape)
+    x = sample['signal'].view(1, batch_size, args.signal_shape)
     valid_x = critic_x(x)
     valid_x = torch.squeeze(valid_x)
     critic_score_valid_x = torch.mean(torch.ones(valid_x.shape) * valid_x) #Wasserstein Loss
@@ -81,7 +81,7 @@ def critic_x_iteration(sample):
 def critic_z_iteration(sample):
     optim_cz.zero_grad()
 
-    x = sample['signal'].view(1, batch_size, signal_shape)
+    x = sample['signal'].view(1, batch_size, args.signal_shape)
     z = encoder(x)
     valid_z = critic_z(z)
     valid_z = torch.squeeze(valid_z)
@@ -111,7 +111,7 @@ def critic_z_iteration(sample):
 def encoder_iteration(sample):
     optim_enc.zero_grad()
 
-    x = sample['signal'].view(1, batch_size, signal_shape)
+    x = sample['signal'].view(1, batch_size, args.signal_shape)
     valid_x = critic_x(x)
     valid_x = torch.squeeze(valid_x)
     critic_score_valid_x = torch.mean(torch.ones(valid_x.shape) * valid_x) #Wasserstein Loss
@@ -135,7 +135,7 @@ def encoder_iteration(sample):
 def decoder_iteration(sample):
     optim_dec.zero_grad()
 
-    x = sample['signal'].view(1, batch_size, signal_shape)
+    x = sample['signal'].view(1, batch_size, args.signal_shape)
     z = encoder(x)
     valid_z = critic_z(z)
     valid_z = torch.squeeze(valid_z)
@@ -156,7 +156,6 @@ def decoder_iteration(sample):
 
     return loss_dec
 
-
 def train(n_epochs=2000):
     logging.debug('Starting training')
     cx_epoch_loss = list()
@@ -165,7 +164,7 @@ def train(n_epochs=2000):
     decoder_epoch_loss = list()
 
     for epoch in range(n_epochs):
-        logging.debug('Epoch {}'.format(epoch))
+        logging.debug(f'Epoch {epoch}')
         n_critics = 5
 
         cx_nc_loss = list()
@@ -185,7 +184,7 @@ def train(n_epochs=2000):
             cx_nc_loss.append(torch.mean(torch.tensor(cx_loss)))
             cz_nc_loss.append(torch.mean(torch.tensor(cz_loss)))
 
-        logging.debug('Critic training done in epoch {}'.format(epoch))
+        logging.debug(f'Critic training done in epoch {epoch}')
         encoder_loss = list()
         decoder_loss = list()
 
@@ -199,9 +198,8 @@ def train(n_epochs=2000):
         cz_epoch_loss.append(torch.mean(torch.tensor(cz_nc_loss)))
         encoder_epoch_loss.append(torch.mean(torch.tensor(encoder_loss)))
         decoder_epoch_loss.append(torch.mean(torch.tensor(decoder_loss)))
-        logging.debug('Encoder decoder training done in epoch {}'.format(epoch))
-        logging.debug('critic x loss {:.3f} critic z loss {:.3f} \nencoder loss {:.3f} decoder loss {:.3f}\n'.format(cx_epoch_loss[-1], cz_epoch_loss[-1], encoder_epoch_loss[-1], decoder_epoch_loss[-1]))
-
+        logging.debug(f'Encoder decoder training done in epoch {epoch}')
+        logging.debug(f'critic x loss {cx_epoch_loss[-1]:.3f} critic z loss {cz_epoch_loss[-1]:.3f} \nencoder loss {encoder_epoch_loss[-1]:.3f} decoder loss {decoder_epoch_loss[-1]:.3f}\n')
         if epoch % 10 == 0:
             torch.save(encoder.state_dict(), encoder.encoder_path)
             torch.save(decoder.state_dict(), decoder.decoder_path)
@@ -209,7 +207,17 @@ def train(n_epochs=2000):
             torch.save(critic_z.state_dict(), critic_z.critic_z_path)
 
 if __name__ == "__main__":
-    dataset = pd.read_csv('exchange-2_cpc_results.csv')
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--model',              type=str, default='model', help='model dir')
+    parser.add_argument('--signal_shape',       type=int, default=100)
+    parser.add_argument('--latent_space_dim',   type=int, default=20)
+    parser.add_argument('--dataset',            type=str, default='exchange-2_cpc_results.csv')
+    parser.add_argument('--batch',              type=int, default=64)
+    args = parser.parse_args()
+    
+    dataset = pd.read_csv(args.dataset)
     #Splitting intro train and test
     #TODO could be done in a more pythonic way
     train_len = int(0.7 * dataset.shape[0])
@@ -218,7 +226,9 @@ if __name__ == "__main__":
 
     train_dataset = SignalDataset(path='train_dataset.csv')
     test_dataset = SignalDataset(path='test_dataset.csv')
-    batch_size = 64
+
+    batch_size = args.batch
+
     train_loader = DataLoader(train_dataset, batch_size=batch_size, drop_last=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, drop_last=True)
 
@@ -227,16 +237,17 @@ if __name__ == "__main__":
 
     lr = 1e-6
 
-    signal_shape = 100
-    latent_space_dim = 20
+    latent_space_dim = args.latent_space_dim
+
+    # TODO : join to args.model
     encoder_path = 'models/encoder.pt'
     decoder_path = 'models/decoder.pt'
     critic_x_path = 'models/critic_x.pt'
     critic_z_path = 'models/critic_z.pt'
     
-    encoder = model.Encoder(encoder_path, signal_shape)
-    decoder = model.Decoder(decoder_path, signal_shape)
-    critic_x = model.CriticX(critic_x_path, signal_shape)
+    encoder = model.Encoder(encoder_path, args.signal_shape)
+    decoder = model.Decoder(decoder_path, args.signal_shape)
+    critic_x = model.CriticX(critic_x_path, args.signal_shape)
     critic_z = model.CriticZ(critic_z_path)
 
     mse_loss = torch.nn.MSELoss()
@@ -249,3 +260,4 @@ if __name__ == "__main__":
     train(n_epochs=1)
 
     anomaly_detection.test(test_loader, encoder, decoder, critic_x)
+
